@@ -4,15 +4,8 @@
  */
 package com.mycompany.battaglia_navale;
 
-/**
- *
- * @author Lorenzo
- */
-public class Colpo 
+public class Colpo
 {
   public int x;
   public int y;
-  
-
-  
 }

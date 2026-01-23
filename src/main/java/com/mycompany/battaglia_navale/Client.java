@@ -10,7 +10,7 @@ public class Client {
     public static void main(String[] args) throws Exception {
 
         // Connessione al server
-        Socket socket = new Socket("localhost", 5000);
+        Socket socket = new Socket("10.102.21.13", 5000);
 
         BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
         PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
@@ -57,8 +57,10 @@ public class Client {
                 int hx = extractInt(msg, "\"x\":");
                 int hy = extractInt(msg, "\"y\":");
 
-                if (hx >= 0 && hy >= 0)
+                if (hx >= 0 && hy >= 0) {
                     myBoard[hy][hx] = 4;
+                    enemyBoard[hy][hx] = 1;
+                }
 
                 clearConsole();
                 printBoards(myBoard, enemyBoard);
@@ -102,13 +104,9 @@ public class Client {
             }
 
             // Aggiorna la griglia avversaria
-            if (risposta.contains("\"hit\":true"))
-                enemyBoard[y][x] = 1;
-            else
-                enemyBoard[y][x] = 9;
+            enemyBoard[y][x] = risposta.contains("\"hit\":true") ? 1 : 9;
 
-            if (risposta.contains("\"sunk\":true"))
-                enemyBoard[y][x] = 3;
+            if (risposta.contains("\"sunk\":true")) enemyBoard[y][x] = 3;
 
             clearConsole();
             printBoards(myBoard, enemyBoard);
@@ -250,14 +248,23 @@ public class Client {
 
                 int v = grid[y][x];
 
+                // --- GRIGLIE DI GIOCO ---
+                // 0 = ignoto
+                // 1 = colpito
+                // 2 = nave
+                // 3 = affondato
+                // 4 = nave colpita
+                // 9 = acqua
+
                 switch (v) {
-                    case 0:  System.out.print(". "); break;
-                    case 1:  System.out.print("X "); break;
-                    case 3:  System.out.print("# "); break;
-                    case 9:  System.out.print("~ "); break;
-                    case 2:  System.out.print(showShips ? "O " : ". "); break;
-                    case 4:  System.out.print("@ "); break;
+                    case 0:  System.out.print("~ "); break; //acqua
+                    case 1:  System.out.print("X "); break; // colpito la barca
+                    case 2:  System.out.print(showShips ? "O " : " ~"); break; //posizione tua nave in tua visione o avversaria
+                    case 3:  System.out.print("# "); break; //hai affondato l'ultima nave
+                    case 4:  System.out.print("@ "); break; //tua nave colpita
+                    case 9:  System.out.print("* "); break; //colpo a vuoto
                     default: System.out.print("? ");
+
                 }
             }
 
@@ -265,4 +272,4 @@ public class Client {
         }
     }
 }
-
+;
