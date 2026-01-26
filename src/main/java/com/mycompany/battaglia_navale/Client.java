@@ -10,10 +10,10 @@ public class Client {
     public static void main(String[] args) throws Exception {
 
         // Connessione al server
-        Socket socket = new Socket("10.102.21.13", 5000);
+        Socket socket = new Socket("localhost", 5000);
 
-        BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+        BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
         BufferedReader tastiera = new BufferedReader(new InputStreamReader(System.in));
 
         Gson gson = new Gson();
@@ -36,12 +36,13 @@ public class Client {
         printBoards(myBoard, enemyBoard);
 
         // --- POSIZIONAMENTO NAVE ---
+        // Chiede all’utente 3 coordinate e le piazza sulla griglia
         List<Cella> cells = askShipPlacement(tastiera, 3, myBoard);
 
         // Invia la nave al server
         Tabella board = new Tabella();
         board.celle = cells;
-        out.println(gson.toJson(board));
+        output.println(gson.toJson(board)); // invio JSON al server
 
         clearConsole();
         printBoards(myBoard, enemyBoard);
@@ -49,17 +50,19 @@ public class Client {
         // --- LOOP DI GIOCO ---
         while (true) {
 
-            String msg = in.readLine();
+            String msg = input.readLine(); // riceve messaggi dal server
             if (msg == null) break;
 
             // --- SE TI HANNO COLPITO ---
             if (msg.contains("\"hitYou\":true")) {
+
+                // Estrae coordinate del colpo subito
                 int hx = extractInt(msg, "\"x\":");
                 int hy = extractInt(msg, "\"y\":");
 
                 if (hx >= 0 && hy >= 0) {
-                    myBoard[hy][hx] = 4;
-                    enemyBoard[hy][hx] = 1;
+                    myBoard[hy][hx] = 4;  // tua nave colpita
+                    enemyBoard[hy][hx] = 1; // segna colpito anche sulla board avversaria
                 }
 
                 clearConsole();
@@ -88,15 +91,16 @@ public class Client {
             colpo.x = x;
             colpo.y = y;
 
-            out.println(gson.toJson(colpo));
+            // Invia il colpo al server
+            output.println(gson.toJson(colpo));
 
             // --- RISPOSTA DEL SERVER ---
-            String risposta = in.readLine();
+            String risposta = input.readLine();
             if (risposta == null) break;
 
             // Fine partita
             if (risposta.contains("\"gameOver\":true")) {
-                enemyBoard[y][x] = 3;
+                enemyBoard[y][x] = 3; // affondato
                 clearConsole();
                 printBoards(myBoard, enemyBoard);
                 System.out.println("\nHAI VINTO!\n");
@@ -106,7 +110,8 @@ public class Client {
             // Aggiorna la griglia avversaria
             enemyBoard[y][x] = risposta.contains("\"hit\":true") ? 1 : 9;
 
-            if (risposta.contains("\"sunk\":true")) enemyBoard[y][x] = 3;
+            if (risposta.contains("\"sunk\":true"))
+                enemyBoard[y][x] = 3; // nave affondata
 
             clearConsole();
             printBoards(myBoard, enemyBoard);
@@ -257,14 +262,13 @@ public class Client {
                 // 9 = acqua
 
                 switch (v) {
-                    case 0:  System.out.print("~ "); break; //acqua
-                    case 1:  System.out.print("X "); break; // colpito la barca
-                    case 2:  System.out.print(showShips ? "O " : " ~"); break; //posizione tua nave in tua visione o avversaria
-                    case 3:  System.out.print("# "); break; //hai affondato l'ultima nave
-                    case 4:  System.out.print("@ "); break; //tua nave colpita
-                    case 9:  System.out.print("* "); break; //colpo a vuoto
+                    case 0:  System.out.print("~ "); break; // acqua / ignoto
+                    case 1:  System.out.print("X "); break; // colpito
+                    case 2:  System.out.print(showShips ? "O " : " ~"); break; // nave visibile solo sulla tua board
+                    case 3:  System.out.print("# "); break; // affondato
+                    case 4:  System.out.print("@ "); break; // tua nave colpita
+                    case 9:  System.out.print("* "); break; // colpo a vuoto
                     default: System.out.print("? ");
-
                 }
             }
 
@@ -272,4 +276,3 @@ public class Client {
         }
     }
 }
-;
