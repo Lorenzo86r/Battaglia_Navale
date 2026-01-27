@@ -3,6 +3,12 @@ package com.mycompany.battaglia_navale;
 import java.io.*;
 import java.net.*;
 import com.google.gson.Gson;
+import com.mycompany.battaglia_navale.logica.Colpo;
+import com.mycompany.battaglia_navale.logica.Messaggio;
+import com.mycompany.battaglia_navale.logica.Risultato;
+import com.mycompany.battaglia_navale.logica.Tabella;
+import com.mycompany.battaglia_navale.payloads.AttackResultPayload;
+import com.mycompany.battaglia_navale.payloads.GameOverPayload;
 
 public class Server 
 {
@@ -47,7 +53,7 @@ public class Server
     // ============================================================
     // THREAD CHE GESTISCE UN SINGOLO GIOCATORE
     // ============================================================
-    static class PlayerHandler implements Runnable 
+    static class PlayerHandler implements Runnable
     {
         private Socket socket;      // socket del giocatore
         private int id;             // id del giocatore (0 o 1)
@@ -60,12 +66,29 @@ public class Server
         }
 
         @Override
-        public void run() {
+        public void run()
+        {
+
+            boolean hit;
+            boolean sunk;
+            boolean gameOver;
+
+            int opponent;
+
+            String jsonShot;
+            String risposta;
+
+            Colpo shot;
+            Messaggio result=new Messaggio();
+            AttackResultPayload attackResultPayload=new AttackResultPayload();
+            GameOverPayload gameOverPayload=new GameOverPayload();
+
+
             try {
                 // ============================================================
                 // 1. RICEZIONE DELLA BOARD DEL GIOCATORE
                 // ============================================================
-                String jsonBoard = in.readLine();              // riceve JSON
+                String jsonBoard = in.readLine();// riceve JSON
                 tabella[id] = gson.fromJson(jsonBoard, Tabella.class); // lo converte in Tabella
 
                 // Quando entrambi i giocatori hanno inviato la board → inizia la partita
@@ -84,35 +107,48 @@ public class Server
                 // ============================================================
                 // 2. LOOP DI GIOCO
                 // ============================================================
-                while (true) {
+                while (true)
+                {
 
                     // Attende un colpo dal giocatore
-                    String jsonShot = in.readLine();
+                    jsonShot = in.readLine();
                     if (jsonShot == null) break; // client disconnesso
 
                     // Converte il JSON in oggetto Colpo
-                    Colpo shot = gson.fromJson(jsonShot, Colpo.class);
+                    shot = gson.fromJson(jsonShot, Colpo.class);
 
                     // Identifica l'avversario
-                    int opponent = 1 - id;
+                    opponent = 1 - id;
 
                     // ============================================================
                     // CONTROLLO SE IL COLPO HA COLPITO UNA NAVE
                     // ============================================================
-                    boolean hit = tabella[opponent].isHit(shot.x, shot.y);
-                    boolean sunk = tabella[opponent].isSunk(); // nave affondata?
-                    boolean gameOver = sunk;                   // partita finita?
+                    hit = tabella[opponent].isHit(shot.x, shot.y);
+                    sunk = tabella[opponent].isSunk(); // nave affondata?
+                    gameOver = sunk;                   // partita finita?
+
+                    risposta=risultato(hit,sunk);
 
                     // ============================================================
                     // RISPOSTA AL GIOCATORE CHE HA TIRATO
                     // ============================================================
-                    Risultato result = new Risultato(
-                        hit,
-                        sunk,
-                        gameOver,
-                        hit ? "Colpito!" : "Acqua!",
-                        !gameOver
-                    );
+
+                    if(!gameOver)
+                    {
+                        result.setTipo("ATTACK_RESULT");
+
+                        attackResultPayload.setX(shot.x);
+                        attackResultPayload.setY(shot.y);
+                        attackResultPayload.setRisultato(risposta);
+
+                        result.setPayload(attackResultPayload);
+                    }
+                    else
+                    {
+                        result.setTipo("GAME_OVER");
+                        gameOverPayload.setVincitore(String.valueOf(id));
+                        result.setPayload(gameOverPayload);
+                    }
 
                     outs[id].println(gson.toJson(result));
 
@@ -144,11 +180,30 @@ public class Server
                 // Chiude la connessione del giocatore
                 socket.close();
 
-            } catch (Exception e) 
+            }
+            catch (Exception e)
             {
                 e.printStackTrace();
             }
         }
+
+        private  String risultato(boolean hit, boolean sunk)
+        {
+
+            if(hit)
+            {
+               return "HIT";
+            }
+
+            if(sunk)
+            {
+                return "SUNK";
+            }
+
+            return "";
+
+        }
+
     }
 }
 
