@@ -2,7 +2,7 @@ package com.mycompany.battaglia_navale.logica;
 
 import com.mycompany.battaglia_navale.payloads.AttackResultPayload;
 
-public class Messaggio
+public class Messaggio //classe generica messaggio
 {
     private String tipo;
     private Object payload;
