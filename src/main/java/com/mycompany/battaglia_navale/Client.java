@@ -1,5 +1,7 @@
+// package di appartenenza
 package com.mycompany.battaglia_navale;
 
+// import librerie
 import java.io.*;
 import java.net.*;
 import java.util.*;
@@ -11,11 +13,10 @@ import com.mycompany.battaglia_navale.logica.Tabella;
 import com.mycompany.battaglia_navale.payloads.AttackResultPayload;
 import com.mycompany.battaglia_navale.payloads.GameOverPayload;
 
-public class Client
-{
+public class Client {
+    private static int numNaviUser = 0;
 
-    public static void main(String[] args) throws Exception
-    {
+    public static void main(String[] args) throws Exception {
 
         // Connessione al server
         Socket socket = new Socket("localhost", 5000);
@@ -26,10 +27,9 @@ public class Client
 
         Gson gson = new Gson();
 
-        String msg = "";
+        String msg;
 
-        int hx = 0;
-        int hy = 0;
+        int hx, hy;
 
         // --- GRIGLIE DI GIOCO ---
         // 0 = vuoto
@@ -61,56 +61,42 @@ public class Client
 
         // --- LOOP DI GIOCO ---
         while (true) {
-
             msg = input.readLine(); // riceve messaggi dal server
             if (msg == null) break;
 
-            // Provo a interpretare il messaggio come Messaggio (per i TUOI payload)
-            Messaggio m = null;
+            // provo a interpretare il messaggio come Messaggio (per i TUOI payload)
+            Messaggio m;
             try {
                 m = gson.fromJson(msg, Messaggio.class);
             } catch (Exception e) {
                 m = null;
             }
 
-            // ============================================================
-            // 1) ATTACK_RESULT (TUO PAYLOAD)
-            // ============================================================
+            // 1) ATTACK RESULT
             if (m != null && "ATTACK_RESULT".equals(m.getTipo())) {
 
                 AttackResultPayload attackResultPayload = gson.fromJson(
-                                gson.toJson(m.getPayload()),
-                                AttackResultPayload.class
-                        );
+                    gson.toJson(m.getPayload()),
+                    AttackResultPayload.class
+                );
 
-
-                if (attackResultPayload.getRisultato().equals("HIT"))
-                {
-                    enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 1;
-                }
-                else if (attackResultPayload.getRisultato().equals("SUNK"))
-                {
-                    enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 3;
-                }
-                else
-                {
-                    enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 9;
-                }
+                String result = attackResultPayload.getRisultato();
+                if (result.equals("HIT")) enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 1;
+                else if (result.equals("SUNK")) enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 3;
+                else enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 9;
 
                 clearConsole();
                 printBoards(myBoard, enemyBoard);
                 continue;
             }
 
-            // ============================================================
-            // 2) GAME_OVER (TUO PAYLOAD)
-            // ============================================================
+            // 2) GAME OVER
             if (m != null && "GAME_OVER".equals(m.getTipo())) {
 
                 GameOverPayload gameOverPayload =gson.fromJson(
-                                gson.toJson(m.getPayload()),
-                                GameOverPayload.class
-                        );
+                    gson.toJson(m.getPayload()),
+                    GameOverPayload.class
+                );
 
 
                 clearConsole();
@@ -122,7 +108,6 @@ public class Client
             // ============================================================
             // 3) LOGICA VECCHIA (ANCORA SENZA PAYLOAD) – NON TOCCATA
             // ============================================================
-
             // --- SE TI HANNO COLPITO ---
             if (msg.contains("\"hitYou\":true")) {
 
@@ -149,8 +134,7 @@ public class Client
             }
 
             // --- SE NON È IL TUO TURNO ---
-            if (!msg.contains("yourTurn\":true"))
-                continue;
+            if (!msg.contains("yourTurn\":true")) continue;
 
             // --- INSERIMENTO COLPO ---
             int[] shot = askShot(tastiera);
@@ -172,22 +156,17 @@ public class Client
         socket.close();
     }
 
-    // ============================================================
-    // PULIZIA CONSOLE (compatibile ovunque)
-    // ============================================================
+    // pulizia console
     public static void clearConsole() {
-        for (int i = 0; i < 40; i++)
-            System.out.println();
+        for (int i = 0; i < 40; i++) System.out.println();
     }
 
-    // ============================================================
-    // POSIZIONAMENTO NAVE (senza vincoli)
-    // ============================================================
+    // metodo per il posizionamento delle navi in console
     public static List<Cella> askShipPlacement(BufferedReader tastiera, int numeroNavi, int[][] myBoard) throws Exception {
 
         List<Cella> cells = new ArrayList<>();
 
-        System.out.println("Inserisci " + numeroNavi + " navicelle (x y):");
+        System.out.println("Inserisci " + numeroNavi + " navi (x y):");
 
         for (int i = 0; i < numeroNavi; i++) {
 
@@ -222,7 +201,8 @@ public class Client
                     continue;
                 }
 
-                // Posiziona la nave
+                // posiziona la nave
+                numNaviUser++;
                 cells.add(new Cella(x, y));
                 myBoard[y][x] = 2;
 
@@ -235,9 +215,7 @@ public class Client
         return cells;
     }
 
-    // ============================================================
-    // VALIDAZIONE COLPO
-    // ============================================================
+    // metodo per validare un colpo
     public static int[] askShot(BufferedReader tastiera) throws Exception {
 
         while (true) {
@@ -269,9 +247,7 @@ public class Client
         }
     }
 
-    // ============================================================
-    // ESTRATTORE DI INTERI DA JSON
-    // ============================================================
+    // estrai interi da un json
     public static int extractInt(String json, String key) {
         int idx = json.indexOf(key);
         if (idx == -1) return -1;
@@ -283,15 +259,16 @@ public class Client
         return Integer.parseInt(json.substring(start, end));
     }
 
-    // ============================================================
-    // STAMPA DELLE TABELLE
-    // ============================================================
+    // stampa delle navi su console
     public static void printBoards(int[][] myBoard, int[][] enemyBoard) {
         System.out.println("\n=== TUA GRIGLIA ===");
         printBoard(myBoard, true);
 
-        System.out.println("\n=== GRIGLIA AVVERSARIO ===");
-        printBoard(enemyBoard, false);
+        // griglia avversario solo quando l'utente ha messo le sue 3 navi
+        if (numNaviUser == 3) {
+            System.out.println("\n=== GRIGLIA AVVERSARIO ===");
+            printBoard(enemyBoard, false);
+        }
     }
 
     public static void printBoard(int[][] grid, boolean showShips) {
