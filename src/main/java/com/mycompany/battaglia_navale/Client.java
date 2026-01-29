@@ -16,144 +16,158 @@ import com.mycompany.battaglia_navale.payloads.GameOverPayload;
 public class Client {
     private static int numNaviUser = 0;
 
+    // --- GRIGLIE DI GIOCO ---
+    // 0 = vuoto
+    // 2 = nave
+    // 4 = nave colpita
+    private static final int[][] myBoard = new int[10][10];
+
+    // 0 = ignoto
+    // 9 = acqua
+    // 1 = colpito
+    // 3 = affondato
+    private static final int[][] enemyBoard = new int[10][10];
+
     public static void main(String[] args) throws Exception {
 
         // Connessione al server
-        Socket socket = new Socket("localhost", 5000);
-
-        BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
-        BufferedReader tastiera = new BufferedReader(new InputStreamReader(System.in));
-
-        Gson gson = new Gson();
+        Socket socket = new Socket("localhost", 5000); // settare IP server
 
         String msg;
 
         int hx, hy;
 
-        // --- GRIGLIE DI GIOCO ---
-        // 0 = vuoto
-        // 2 = nave
-        // 4 = nave colpita
-        int[][] myBoard = new int[10][10];
+        // check numeri utenti connessi al server
+        if (Server.readyPlayers == 2) {
+            System.out.println("Partita già piena");
+            System.exit(0);
+        }
+        else {
+            BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
+            BufferedReader tastiera = new BufferedReader(new InputStreamReader(System.in));
 
-        // 0 = ignoto
-        // 9 = acqua
-        // 1 = colpito
-        // 3 = affondato
-        int[][] enemyBoard = new int[10][10];
+            Gson gson = new Gson();
 
-        // Mostra la griglia vuota prima del posizionamento
+            // stampa tabella
+            printTable(gson, output, tastiera);
+
+            // --- LOOP DI GIOCO ---
+            while (true) {
+                msg = input.readLine(); // riceve messaggi dal server
+                if (msg == null) break;
+
+                // provo a interpretare il messaggio come Messaggio (per i TUOI payload)
+                Messaggio m;
+                try {
+                    m = gson.fromJson(msg, Messaggio.class);
+                } catch (Exception e) {
+                    m = null;
+                }
+
+                // 1) ATTACK RESULT
+                if (m != null && "ATTACK_RESULT".equals(m.getTipo())) {
+
+                    AttackResultPayload attackResultPayload = gson.fromJson(
+                            gson.toJson(m.getPayload()),
+                            AttackResultPayload.class
+                    );
+
+                    String result = attackResultPayload.getRisultato();
+                    if (result.equals("HIT")) enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 1;
+                    else if (result.equals("SUNK"))
+                        enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 3;
+                    else enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 9;
+
+                    clearConsole();
+                    printBoards(myBoard, enemyBoard);
+                    continue;
+                }
+
+                // 2) GAME OVER
+                if (m != null && "GAME_OVER".equals(m.getTipo())) {
+
+                    GameOverPayload gameOverPayload = gson.fromJson(
+                            gson.toJson(m.getPayload()),
+                            GameOverPayload.class
+                    );
+
+
+                    clearConsole();
+                    printBoards(myBoard, enemyBoard);
+                    System.out.println("\nPartita finita! Vincitore: " + gameOverPayload.getVincitore());
+                    break;
+                }
+
+                // ============================================================
+                // 3) LOGICA VECCHIA (ANCORA SENZA PAYLOAD) – NON TOCCATA
+                // ============================================================
+                // --- SE TI HANNO COLPITO ---
+                if (msg.contains("\"hitYou\":true")) {
+
+                    // Estrae coordinate del colpo subito
+                    hx = extractInt(msg, "\"x\":");
+                    hy = extractInt(msg, "\"y\":");
+
+                    if (hx >= 0 && hy >= 0) {
+                        myBoard[hy][hx] = 4;  // tua nave colpita
+                        enemyBoard[hy][hx] = 1; // segna colpito anche sulla board avversaria
+                    }
+
+                    clearConsole();
+                    printBoards(myBoard, enemyBoard);
+                    continue;
+                }
+
+                // --- SE LA PARTITA È FINITA (vecchio formato) ---
+                if (msg.contains("gameOver")) {
+                    clearConsole();
+                    printBoards(myBoard, enemyBoard);
+                    System.out.println("\nHAI VINTO!\n");
+                    break;
+                }
+
+                // --- SE NON È IL TUO TURNO ---
+                if (!msg.contains("yourTurn\":true")) continue;
+
+                // --- INSERIMENTO COLPO ---
+                int[] shot = askShot(tastiera);
+                int x = shot[0];
+                int y = shot[1];
+
+                Colpo colpo = new Colpo();
+                colpo.x = x;
+                colpo.y = y;
+
+                // Invia il colpo al server
+                output.println(gson.toJson(colpo));
+
+                // ATTENZIONE: niente seconda readLine qui.
+                // Il risultato del colpo arriverà come ATTACK_RESULT
+                // nel prossimo giro del while.
+            }
+
+            socket.close();
+        }
+    }
+
+    // metodo per stampare la tabella
+    public static void printTable(Gson gson, PrintWriter output, BufferedReader tastiera) throws Exception {
+        // mostra la griglia vuota prima del posizionamento
         clearConsole();
         System.out.println("=== TUA GRIGLIA (VUOTA) ===");
         printBoards(myBoard, enemyBoard);
 
         // --- POSIZIONAMENTO NAVE ---
         List<Cella> cells = askShipPlacement(tastiera, 3, myBoard);
-
-        // Invia la nave al server
+        // invia la nave al server
         Tabella board = new Tabella();
         board.celle = cells;
         output.println(gson.toJson(board)); // invio JSON al server
 
+        // stampa tabella aggiornata
         clearConsole();
         printBoards(myBoard, enemyBoard);
-
-        // --- LOOP DI GIOCO ---
-        while (true) {
-            msg = input.readLine(); // riceve messaggi dal server
-            if (msg == null) break;
-
-            // provo a interpretare il messaggio come Messaggio (per i TUOI payload)
-            Messaggio m;
-            try {
-                m = gson.fromJson(msg, Messaggio.class);
-            } catch (Exception e) {
-                m = null;
-            }
-
-            // 1) ATTACK RESULT
-            if (m != null && "ATTACK_RESULT".equals(m.getTipo())) {
-
-                AttackResultPayload attackResultPayload = gson.fromJson(
-                    gson.toJson(m.getPayload()),
-                    AttackResultPayload.class
-                );
-
-                String result = attackResultPayload.getRisultato();
-                if (result.equals("HIT")) enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 1;
-                else if (result.equals("SUNK")) enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 3;
-                else enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 9;
-
-                clearConsole();
-                printBoards(myBoard, enemyBoard);
-                continue;
-            }
-
-            // 2) GAME OVER
-            if (m != null && "GAME_OVER".equals(m.getTipo())) {
-
-                GameOverPayload gameOverPayload =gson.fromJson(
-                    gson.toJson(m.getPayload()),
-                    GameOverPayload.class
-                );
-
-
-                clearConsole();
-                printBoards(myBoard, enemyBoard);
-                System.out.println("\nPartita finita! Vincitore: " + gameOverPayload.getVincitore());
-                break;
-            }
-
-            // ============================================================
-            // 3) LOGICA VECCHIA (ANCORA SENZA PAYLOAD) – NON TOCCATA
-            // ============================================================
-            // --- SE TI HANNO COLPITO ---
-            if (msg.contains("\"hitYou\":true")) {
-
-                // Estrae coordinate del colpo subito
-                hx = extractInt(msg, "\"x\":");
-                hy = extractInt(msg, "\"y\":");
-
-                if (hx >= 0 && hy >= 0) {
-                    myBoard[hy][hx] = 4;  // tua nave colpita
-                    enemyBoard[hy][hx] = 1; // segna colpito anche sulla board avversaria
-                }
-
-                clearConsole();
-                printBoards(myBoard, enemyBoard);
-                continue;
-            }
-
-            // --- SE LA PARTITA È FINITA (vecchio formato) ---
-            if (msg.contains("gameOver")) {
-                clearConsole();
-                printBoards(myBoard, enemyBoard);
-                System.out.println("\nHAI VINTO!\n");
-                break;
-            }
-
-            // --- SE NON È IL TUO TURNO ---
-            if (!msg.contains("yourTurn\":true")) continue;
-
-            // --- INSERIMENTO COLPO ---
-            int[] shot = askShot(tastiera);
-            int x = shot[0];
-            int y = shot[1];
-
-            Colpo colpo = new Colpo();
-            colpo.x = x;
-            colpo.y = y;
-
-            // Invia il colpo al server
-            output.println(gson.toJson(colpo));
-
-            // ATTENZIONE: niente seconda readLine qui.
-            // Il risultato del colpo arriverà come ATTACK_RESULT
-            // nel prossimo giro del while.
-        }
-
-        socket.close();
     }
 
     // pulizia console

@@ -25,7 +25,7 @@ public class Server
     private static PrintWriter[] outs = new PrintWriter[2];
 
     // Numero di giocatori che hanno inviato la loro board
-    private static int readyPlayers = 0;
+    public static int readyPlayers = 0;
 
     // Indica di chi è il turno (0 = player1, 1 = player2)
     private static int turn = 0;
