@@ -1,10 +1,13 @@
-// package di appartenenza
 package com.mycompany.battaglia_navale;
 
-// import librerie
-import java.io.*;
-import java.net.*;
-import java.util.*;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 import com.google.gson.Gson;
 import com.mycompany.battaglia_navale.logica.Cella;
 import com.mycompany.battaglia_navale.logica.Colpo;
@@ -14,299 +17,236 @@ import com.mycompany.battaglia_navale.payloads.AttackResultPayload;
 import com.mycompany.battaglia_navale.payloads.GameOverPayload;
 
 public class Client {
-    private static int numNaviUser = 0;
+    // --- COSTANTI ESTETICHE ---
+    public static final String RESET = "\u001B[0m";
+    public static final String ROSSO = "\u001B[31m";
+    public static final String VERDE = "\u001B[32m";
+    public static final String GIALLO = "\u001B[33m";
+    public static final String BLU = "\u001B[34m";
+    public static final String CIANO = "\u001B[36m";
+    public static final String VIOLA = "\u001B[35m";
+    public static final String BIANCO = "\u001B[37m";
+
+    private static boolean isMyTurn = false;
+    private static int[][] myBoard = new int[10][10];
+    private static int[][] enemyBoard = new int[10][10];
 
     public static void main(String[] args) throws Exception {
+        try (Socket socket = new Socket("localhost", 5000)) {
+            BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
+            BufferedReader tastiera = new BufferedReader(new InputStreamReader(System.in));
+            Gson gson = new Gson();
 
-        // Connessione al server
-        Socket socket = new Socket("localhost", 5000);
+            printBanner();
+            
+            // 1. POSIZIONAMENTO
+            System.out.println(CIANO + "\n>>> FASE DI POSIZIONAMENTO NAVI <<<" + RESET);
+            printBoards(myBoard, enemyBoard);
+            List<Cella> cells = askShipPlacement(tastiera, 2, myBoard);
+            
+            Tabella board = new Tabella();
+            board.celle = cells;
+            output.println(gson.toJson(board));
+            
+            System.out.println(GIALLO + "\n[!] Flotta schierata. In attesa dell'avversario..." + RESET);
 
-        BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        PrintWriter output = new PrintWriter(socket.getOutputStream(), true);
-        BufferedReader tastiera = new BufferedReader(new InputStreamReader(System.in));
-
-        Gson gson = new Gson();
-
-        String msg;
-
-        int hx, hy;
-
-        int[][] myBoard = new int[10][10];
-
-        int[][] enemyBoard = new int[10][10];
-
-        // Mostra la griglia vuota prima del posizionamento
-        clearConsole();
-        System.out.println("=== TUA GRIGLIA (VUOTA) ===");
-        printBoards(myBoard, enemyBoard);
-
-        // --- POSIZIONAMENTO NAVE ---
-        List<Cella> cells = askShipPlacement(tastiera, 2, myBoard); // 2 navi 
-
-        // Creiamo la tabella con le celle
-        Tabella board = new Tabella();
-        board.celle = cells;
-
-        // Impacchettiamo tutto nel Messaggio
-        Messaggio mPos = new Messaggio();
-        mPos.setTipo("PLACE_SHIPS");
-        mPos.setPayload(board);
-
-        // Inviamo il messaggio JSON
-        output.println(gson.toJson(mPos));
-
-        clearConsole();
-        printBoards(myBoard, enemyBoard);
-
-        // --- LOOP DI GIOCO ---
-        while (true) {
-            msg = input.readLine(); // riceve messaggi dal server
-            if (msg == null)
-                break;
-
-            // provo a interpretare il messaggio come Messaggio (per i TUOI payload)
-            Messaggio m;
-            try {
-                m = gson.fromJson(msg, Messaggio.class);
-            } catch (Exception e) {
-                m = null;
-            }
-
-            if (m != null && "GAME_START".equals(m.getTipo())) {
-                System.out.println("Entrambi i giocatori pronti! La partita inizia.");
-                // Estrai dal payload se è il tuo turno
-                continue;
-            }
-
-            // 1) ATTACK RESULT
-            if (m != null && "ATTACK_RESULT".equals(m.getTipo())) {
-
-                AttackResultPayload attackResultPayload = gson.fromJson(
-                        gson.toJson(m.getPayload()),
-                        AttackResultPayload.class);
-
-                String result = attackResultPayload.getRisultato();
-                if (result.equals("HIT"))
-                    enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 1;
-                else if (result.equals("SUNK"))
-                    enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 3;
-                else
-                    enemyBoard[attackResultPayload.getY()][attackResultPayload.getX()] = 9;
-
-                clearConsole();
-                printBoards(myBoard, enemyBoard);
-                continue;
-            }
-
-            // 2) GAME OVER
-            if (m != null && "GAME_OVER".equals(m.getTipo())) {
-
-                GameOverPayload gameOverPayload = gson.fromJson(
-                        gson.toJson(m.getPayload()),
-                        GameOverPayload.class);
-
-                clearConsole();
-                printBoards(myBoard, enemyBoard);
-                System.out.println("\nPartita finita! Vincitore: " + gameOverPayload.getVincitore());
-                break;
-            }
-
-            // ============================================================
-            // 3) LOGICA VECCHIA (ANCORA SENZA PAYLOAD) – NON TOCCATA
-            // ============================================================
-            // --- SE TI HANNO COLPITO ---
-            if (msg.contains("\"hitYou\":true")) {
-
-                // Estrae coordinate del colpo subito
-                hx = extractInt(msg, "\"x\":");
-                hy = extractInt(msg, "\"y\":");
-
-                if (hx >= 0 && hy >= 0) {
-                    myBoard[hy][hx] = 4; // tua nave colpita
-                    enemyBoard[hy][hx] = 1; // segna colpito anche sulla board avversaria
+            // 2. LOOP DI GIOCO
+            while (true) {
+                if (isMyTurn) {
+                    System.out.println(VERDE + "\n--- TOCCA A TE! Prendi la mira ---" + RESET);
+                    int[] shot = askShot(tastiera);
+                    sendAttack(output, gson, shot[0], shot[1]);
+                    isMyTurn = false;
                 }
 
-                clearConsole();
-                printBoards(myBoard, enemyBoard);
-                continue;
-            }
+                String msg = input.readLine();
+                if (msg == null) break;
 
-            // --- SE LA PARTITA È FINITA (vecchio formato) ---
-            if (msg.contains("gameOver")) {
-                clearConsole();
-                printBoards(myBoard, enemyBoard);
-                System.out.println("\nHAI VINTO!\n");
-                break;
-            }
+                Messaggio m = gson.fromJson(msg, Messaggio.class);
+                if (m == null) continue;
 
-            // --- SE NON È IL TUO TURNO ---
-            if (!msg.contains("yourTurn\":true"))
-                continue;
-
-            // --- INSERIMENTO COLPO ---
-            int[] shot = askShot(tastiera);
-            int x = shot[0];
-            int y = shot[1];
-
-            Colpo colpo = new Colpo();
-            colpo.x = x;
-            colpo.y = y;
-
-            // Invia il colpo al server
-            output.println(gson.toJson(colpo));
-
-            // ATTENZIONE: niente seconda readLine qui.
-            // Il risultato del colpo arriverà come ATTACK_RESULT
-            // nel prossimo giro del while.
-        }
-
-        socket.close();
-    }
-
-    // pulizia console
-    public static void clearConsole() {
-        for (int i = 0; i < 40; i++)
-            System.out.println();
-    }
-
-    // metodo per il posizionamento delle navi in console
-    public static List<Cella> askShipPlacement(BufferedReader tastiera, int numeroNavi, int[][] myBoard)
-            throws Exception {
-        List<Cella> cells = new ArrayList<>();
-
-        for (int i = 0; i < numeroNavi; i++) {
-            System.out.println("\nNave " + (i + 1) + ":");
-            System.out.print("Scegli: 1 per Destroyer (2 celle), 2 per Submarine (3 celle): ");
-            String tipo = tastiera.readLine();
-            int dimensione = (tipo.equals("1")) ? 2 : 3;
-
-            for (int j = 0; j < dimensione; j++) {
-                while (true) {
-                    System.out.print(
-                            "Cella " + (j + 1) + " per " + (dimensione == 2 ? "Destroyer" : "Submarine") + " (x y): ");
-                    String riga = tastiera.readLine();
-                    if (riga == null)
-                        continue;
-                    String[] p = riga.trim().split("\\s+");
-
-                    try {
-                        int x = Integer.parseInt(p[0]);
-                        int y = Integer.parseInt(p[1]);
-
-                        if (x >= 0 && x < 10 && y >= 0 && y < 10 && myBoard[y][x] == 0) {
-                            cells.add(new Cella(x, y));
-                            myBoard[y][x] = 2;
-                            numNaviUser++; // Importante per la stampa della griglia
-                            break;
-                        } else {
-                            System.out.println("Coordinate non valide o occupate!");
-                        }
-                    } catch (Exception e) {
-                        System.out.println("Errore! Inserisci due numeri separati da spazio.");
+                switch (m.getTipo()) {
+                    case "GAME_START" -> {
+                        isMyTurn = (boolean) ((Map)m.getPayload()).get("yourTurn");
+                        clearConsole();
+                        printBoards(myBoard, enemyBoard);
+                        System.out.println(VERDE + ">>> LA BATTAGLIA COMINCIA! <<<" + RESET);
                     }
+                    case "ATTACK_RESULT" -> {
+                        AttackResultPayload res = gson.fromJson(gson.toJson(m.getPayload()), AttackResultPayload.class);
+                        updateEnemyBoard(res);
+                        clearConsole();
+                        printBoards(myBoard, enemyBoard);
+                        System.out.println(GIALLO + "Ultimo colpo: " + res.getRisultato() + RESET);
+                    }
+                    case "INCOMING_ATTACK" -> {
+                        Map p = (Map)m.getPayload();
+                        updateMyBoard(p);
+                        clearConsole();
+                        printBoards(myBoard, enemyBoard);
+                        System.out.println(ROSSO + "Attacco subito in (" + p.get("x") + "," + p.get("y") + "): " + p.get("result") + RESET);
+                    }
+                    case "TURN_CHANGE" -> {
+                        isMyTurn = (boolean) ((Map)m.getPayload()).get("yourTurn");
+                    }
+                    case "GAME_OVER" -> {
+                        GameOverPayload go = gson.fromJson(gson.toJson(m.getPayload()), GameOverPayload.class);
+                        clearConsole();
+                        printBoards(myBoard, enemyBoard);
+                        System.out.println(VIOLA + "\n************************************");
+                        System.out.println("       VINCITORE: " + go.getVincitore());
+                        System.out.println("************************************" + RESET);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // --- METODI DI SUPPORTO ESTETICI ---
+
+    private static void printBanner() {
+        System.out.println(CIANO + "  ____    _  _____ _____  _    ____ _     ___    _    " + RESET);
+        System.out.println(CIANO + " | __ )  / \\|_   _|_   _|/ \\  / ___| |   |_ _|  / \\   " + RESET);
+        System.out.println(CIANO + " |  _ \\ / _ \\ | |   | | / _ \\| |  _| |    | |  / _ \\  " + RESET);
+        System.out.println(CIANO + " | |_) / ___ \\| |   | |/ ___ \\ |_| | |___ | | / ___ \\ " + RESET);
+        System.out.println(CIANO + " |____/_/   \\_\\_|   |_/_/   \\_\\____|_____|___/_/   \\_\\" + RESET);
+        System.out.println(CIANO + "                                                      " + RESET);
+        System.out.println(CIANO + "      _   _    _  __     __  _    _     _____       " + RESET);
+        System.out.println(CIANO + "     | \\ | |  / \\ \\ \\   / / / \\  | |   | ____|      " + RESET);
+        System.out.println(CIANO + "     |  \\| | / _ \\ \\ \\ / / / _ \\ | |   |  _|        " + RESET);
+        System.out.println(CIANO + "     | |\\  |/ ___ \\ \\ V / / ___ \\| |___| |___       " + RESET);
+        System.out.println(CIANO + "     |_| \\_/_/   \\_\\ \\_/ /_/   \\_\\_____|_____|      " + RESET);
+    }
+
+    public static void printBoards(int[][] myBoard, int[][] enemyBoard) {
+        System.out.println("\n" + VERDE + "    [ TUA FLOTTA ]" + RESET + "              " + ROSSO + "   [ RADAR NEMICO ]" + RESET);
+        System.out.println(BIANCO + "   0 1 2 3 4 5 6 7 8 9            0 1 2 3 4 5 6 7 8 9" + RESET);
+        
+        for (int y = 0; y < 10; y++) {
+            // Riga Tua Board
+            System.out.print(BIANCO + y + "  " + RESET);
+            for (int x = 0; x < 10; x++) System.out.print(getSymbol(myBoard[y][x], true));
+            
+            System.out.print("        ");
+            
+            // Riga Enemy Board
+            System.out.print(BIANCO + y + "  " + RESET);
+            for (int x = 0; x < 10; x++) System.out.print(getSymbol(enemyBoard[y][x], false));
+            System.out.println();
+        }
+    }
+
+    private static String getSymbol(int cell, boolean showShips) {
+        return switch (cell) {
+            case 0 -> BLU + "~ " + RESET;
+            case 1 -> ROSSO + "X " + RESET;
+            case 2 -> showShips ? VERDE + "O " + RESET : BLU + "~ " + RESET;
+            case 3 -> GIALLO + "# " + RESET;
+            case 4 -> ROSSO + "@ " + RESET;
+            case 9 -> BIANCO + "* " + RESET;
+            default -> "? ";
+        };
+    }
+
+    public static void clearConsole() {
+        System.out.print("\033[H\033[2J"); // Metodo ANSI più potente per pulire lo schermo
+        System.out.flush();
+    }
+
+    // --- LOGICA DI INPUT ---
+
+    public static List<Cella> askShipPlacement(BufferedReader tastiera, int numeroNavi, int[][] myBoard) throws Exception {
+        List<Cella> allCells = new ArrayList<>();
+        for (int i = 0; i < numeroNavi; i++) {
+            List<Cella> currentShipCells = new ArrayList<>();
+            int dim = 0;
+             while (true) {
+                System.out.print(CIANO + "\nTipo Nave " + (i + 1) + " (1: Destroyer-2 celle, 2: Submarine-3 celle): " + RESET);
+                String scelta = tastiera.readLine(); 
+                
+                if (scelta == null) continue;
+                scelta = scelta.trim();
+
+                if ("1".equals(scelta)) {
+                    dim = 2;
+                    break; // Scelta valida, esco dal while
+                } else if ("2".equals(scelta)) {
+                    dim = 3;
+                    break; // Scelta valida, esco dal while
+                } else {
+                    System.out.println(ROSSO + "Scelta invalida! Inserisci 1 o 2." + RESET);
+                }
+            }
+
+            for (int j = 0; j < dim; j++) {
+                while (true) {
+                    if(dim == 2) System.out.print(CIANO + "Destroyer: Cella " + (j + 1) + " (x y): " + RESET);
+                    else System.out.print(CIANO + "Submarine: Cella " + (j + 1) + " (x y): " + RESET);
+                    String riga = tastiera.readLine();
+                    String[] p = (riga != null) ? riga.trim().split("\\s+") : new String[0];
+                    if (p.length < 2) { System.out.println(ROSSO + "Inserisci due coordinate!" + RESET); continue; }
+                    try {
+                        int x = Integer.parseInt(p[0]), y = Integer.parseInt(p[1]);
+                        if (x < 0 || x > 9 || y < 0 || y > 9 || myBoard[y][x] != 0) { System.out.println(ROSSO + "Invalida!" + RESET); continue; }
+                        
+                        if (j > 0) {
+                            Cella prev = currentShipCells.get(j-1);
+                            if ((Math.abs(x - prev.x) + Math.abs(y - prev.y)) != 1) { System.out.println(ROSSO + "Non adiacente!" + RESET); continue; }
+                            if (j == 2) {
+                                Cella prima = currentShipCells.get(0);
+                                if (y != prima.y && x != prima.x) { System.out.println(ROSSO + "Deve essere dritta!" + RESET); continue; }
+                            }
+                        }
+                        Cella n = new Cella(x, y);
+                        currentShipCells.add(n); allCells.add(n); myBoard[y][x] = 2;
+                        break;
+                    } catch (Exception e) { System.out.println(ROSSO + "Numeri non validi!" + RESET); }
                 }
             }
             clearConsole();
             printBoards(myBoard, new int[10][10]);
         }
-        return cells;
+        return allCells;
     }
 
-    // metodo per validare un colpo
     public static int[] askShot(BufferedReader tastiera) throws Exception {
-
         while (true) {
-            System.out.print("Inserisci colpo (x y): ");
+            System.out.print("Mira (x y): ");
             String riga = tastiera.readLine();
-
-            if (riga == null)
-                continue;
-
-            String[] p = riga.trim().split("\\s+");
-            if (p.length != 2) {
-                System.out.println("Formato non valido.");
-                continue;
-            }
-
+            String[] p = (riga != null) ? riga.trim().split("\\s+") : new String[0];
+            if (p.length < 2) continue;
             try {
-                int x = Integer.parseInt(p[0]);
-                int y = Integer.parseInt(p[1]);
-
-                if (x < 0 || x > 9 || y < 0 || y > 9) {
-                    System.out.println("Coordinate fuori range.");
-                    continue;
-                }
-
-                return new int[] { x, y };
-
-            } catch (Exception e) {
-                System.out.println("Inserisci numeri validi.");
-            }
+                int x = Integer.parseInt(p[0]), y = Integer.parseInt(p[1]);
+                if (x >= 0 && x <= 9 && y >= 0 && y <= 9) return new int[]{x, y};
+            } catch (Exception e) {}
+            System.out.println(ROSSO + "Coordinate errate!" + RESET);
         }
     }
 
-    // estrai interi da un json
-    public static int extractInt(String json, String key) {
-        int idx = json.indexOf(key);
-        if (idx == -1)
-            return -1;
-
-        int start = idx + key.length();
-        int end = json.indexOf(",", start);
-        if (end == -1)
-            end = json.indexOf("}", start);
-
-        return Integer.parseInt(json.substring(start, end));
+    private static void sendAttack(PrintWriter out, Gson gson, int x, int y) {
+        Messaggio m = new Messaggio();
+        m.setTipo("ATTACK");
+        Colpo c = new Colpo(); c.x = x; c.y = y;
+        m.setPayload(c);
+        out.println(gson.toJson(m));
     }
 
-    // stampa delle navi su console
-    public static void printBoards(int[][] myBoard, int[][] enemyBoard) {
-        System.out.println("\n=== TUA GRIGLIA ===");
-        printBoard(myBoard, true);
-
-        // griglia avversario solo quando l'utente ha messo le sue 3 navi
-        if (numNaviUser == 3) {
-            System.out.println("\n=== GRIGLIA AVVERSARIO ===");
-            printBoard(enemyBoard, false);
-        }
+    private static void updateEnemyBoard(AttackResultPayload res) {
+        int val = switch(res.getRisultato()) {
+            case "HIT" -> 1;
+            case "SUNK" -> 3;
+            default -> 9;
+        };
+        enemyBoard[res.getY()][res.getX()] = val;
     }
 
-    public static void printBoard(int[][] grid, boolean showShips) {
-
-        System.out.println("   0 1 2 3 4 5 6 7 8 9");
-
-        for (int y = 0; y < 10; y++) {
-            System.out.print(y + "  ");
-
-            for (int x = 0; x < 10; x++) {
-
-                int v = grid[y][x];
-
-                switch (v) {
-                    case 0:
-                        System.out.print("~ ");
-                        break; // acqua / ignoto
-                    case 1:
-                        System.out.print("X ");
-                        break; // colpito
-                    case 2:
-                        System.out.print(showShips ? "O " : " ~");
-                        break; // nave visibile solo sulla tua board
-                    case 3:
-                        System.out.print("# ");
-                        break; // affondato
-                    case 4:
-                        System.out.print("@ ");
-                        break; // tua nave colpita
-                    case 9:
-                        System.out.print("* ");
-                        break; // colpo a vuoto
-                    default:
-                        System.out.print("? ");
-                }
-            }
-
-            System.out.println();
+    private static void updateMyBoard(Map p) {
+        if (!"MISS".equals(p.get("result"))) {
+            int ix = ((Double) p.get("x")).intValue();
+            int iy = ((Double) p.get("y")).intValue();
+            myBoard[iy][ix] = 4;
         }
     }
 }

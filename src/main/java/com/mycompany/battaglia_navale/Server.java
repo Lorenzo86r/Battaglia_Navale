@@ -1,60 +1,49 @@
 package com.mycompany.battaglia_navale;
 
-import java.io.*;
-import java.net.*;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.ServerSocket;
+import java.net.Socket;
+
 import com.google.gson.Gson;
 import com.mycompany.battaglia_navale.logica.Colpo;
 import com.mycompany.battaglia_navale.logica.Messaggio;
-import com.mycompany.battaglia_navale.logica.Risultato;
 import com.mycompany.battaglia_navale.logica.Tabella;
 import com.mycompany.battaglia_navale.payloads.AttackResultPayload;
 import com.mycompany.battaglia_navale.payloads.GameOverPayload;
+import com.mycompany.battaglia_navale.payloads.IncomingAttackPayload;
+import com.mycompany.battaglia_navale.payloads.TurnChangePayload;
 
 public class Server {
-    // Porta su cui il server ascolta
     private static final int PORT = 5000;
+    private static final Gson gson = new Gson();
+    private static final Tabella[] tabella = new Tabella[2];
+    private static final PrintWriter[] outs = new PrintWriter[2];
+    public static int readyPlayers = 0;
 
-    // Oggetto Gson per serializzare/deserializzare JSON
-    private static Gson gson = new Gson();
-
-    // Tabelle dei due giocatori (0 e 1)
-    private static Tabella[] tabella = new Tabella[2];
-
-    // Output stream per inviare messaggi ai due client
-    private static PrintWriter[] outs = new PrintWriter[2];
-
-    // Numero di giocatori che hanno inviato la loro board
-    public static int readyPlayers = 0, connectedPlayers = 0;
-
-    // Indica di chi è il turno (0 = player1, 1 = player2)
-    private static int turn = 0;
+    // Colori per i log del server
+    public static final String S_RESET = "\u001B[0m";
+    public static final String S_CYAN = "\u001B[36m";
+    public static final String S_VERDE = "\u001B[32m";
+    public static final String S_ROSSO = "\u001B[31m";
 
     public static void main(String[] args) throws Exception {
-        // Avvio del server
         ServerSocket server = new ServerSocket(PORT);
-        System.out.println("Server pronto...");
+        System.out.println(S_CYAN + "[SERVER] In ascolto sulla porta " + PORT + "..." + S_RESET);
 
-        // Attende la connessione di 2 giocatori
         for (int i = 0; i < 2; i++) {
             Socket client = server.accept();
-            System.out.println("Client " + i + " connesso");
-            connectedPlayers++;
-
-            // Salva il canale di output del client
+            System.out.println(S_VERDE + "[CONNESSIONE] Giocatore " + i + " collegato da " + client.getInetAddress() + S_RESET);
             outs[i] = new PrintWriter(client.getOutputStream(), true);
-
-            // Avvia un thread dedicato per gestire il giocatore
             new Thread(new PlayerHandler(client, i)).start();
         }
     }
 
-    // ============================================================
-    // THREAD CHE GESTISCE UN SINGOLO GIOCATORE
-    // ============================================================
     static class PlayerHandler implements Runnable {
-        private Socket socket; // socket del giocatore
-        private int id; // id del giocatore (0 o 1)
-        private BufferedReader in; // input dal client
+        private Socket socket;
+        private int id;
+        private BufferedReader in;
 
         public PlayerHandler(Socket socket, int id) throws Exception {
             this.socket = socket;
@@ -64,137 +53,73 @@ public class Server {
 
         @Override
         public void run() {
-
-            boolean hit;
-            boolean sunk;
-            boolean gameOver;
-
-            int opponent;
-
-            String jsonShot;
-            String risposta;
-
-            Colpo shot;
-            Messaggio result = new Messaggio();
-            AttackResultPayload attackResultPayload = new AttackResultPayload();
-            GameOverPayload gameOverPayload = new GameOverPayload();
-
             try {
-                // ============================================================
-                // 1. RICEZIONE DELLA BOARD DEL GIOCATORE
-                // ============================================================
-                String jsonBoard = in.readLine();// riceve JSON
-                tabella[id] = gson.fromJson(jsonBoard, Tabella.class); // lo converte in Tabella
+                // 1. RICEZIONE BOARD
+                String jsonBoard = in.readLine();
+                tabella[id] = gson.fromJson(jsonBoard, Tabella.class);
+                System.out.println(S_CYAN + "[LOG] Ricevuta flotta da Giocatore " + id + S_RESET);
 
-                // Quando entrambi i giocatori hanno inviato la board → inizia la partita
                 synchronized (Server.class) {
                     readyPlayers++;
-
                     if (readyPlayers == 2) {
-                        // Creiamo il messaggio GAME_START
-                        Messaggio startMsg = new Messaggio();
-                        startMsg.setTipo("GAME_START");
-
-                        // Invio al Player 0
-                        startMsg.setPayload("Sei il primo a tirare.");
-                        outs[0].println(gson.toJson(startMsg));
-
-                        // Invio al Player 1
-                        startMsg.setPayload("Attendi il tuo turno.");
-                        outs[1].println(gson.toJson(startMsg));
+                        System.out.println(S_VERDE + "[GAME] Entrambi pronti. Invio GAME_START." + S_RESET);
+                        sendTo(0, "GAME_START", new TurnChangePayload(true));
+                        sendTo(1, "GAME_START", new TurnChangePayload(false));
                     }
                 }
 
-                // ============================================================
                 // 2. LOOP DI GIOCO
-                // ============================================================
                 while (true) {
+                    String jsonShot = in.readLine();
+                    if (jsonShot == null) break;
 
-                    // Attende un colpo dal giocatore
-                    jsonShot = in.readLine();
-                    if (jsonShot == null)
-                        break; // client disconnesso
+                    Messaggio msgRicevuto = gson.fromJson(jsonShot, Messaggio.class);
+                    Colpo shot = gson.fromJson(gson.toJson(msgRicevuto.getPayload()), Colpo.class);
+                    int opponent = 1 - id;
 
-                    // Converte il JSON in oggetto Colpo
-                    shot = gson.fromJson(jsonShot, Colpo.class);
+                    boolean hit = tabella[opponent].isHit(shot.x, shot.y);
+                    boolean sunk = tabella[opponent].isSunk();
+                    String risposta = (sunk) ? "SUNK" : (hit ? "HIT" : "MISS");
 
-                    // Identifica l'avversario
-                    opponent = 1 - id;
+                    System.out.println(S_CYAN + "[MOSSA] P" + id + " spara in (" + shot.x + "," + shot.y + ") -> " + risposta + S_RESET);
 
-                    // ============================================================
-                    // CONTROLLO SE IL COLPO HA COLPITO UNA NAVE
-                    // ============================================================
-                    hit = tabella[opponent].isHit(shot.x, shot.y);
-                    sunk = tabella[opponent].isSunk(); // nave affondata?
-                    gameOver = sunk; // partita finita?
-
-                    risposta = risultato(hit, sunk);
-
-                    // ============================================================
-                    // RISPOSTA AL GIOCATORE CHE HA TIRATO
-                    // ============================================================
-
-                    if (!gameOver) {
-                        result.setTipo("ATTACK_RESULT");
-
-                        attackResultPayload.setX(shot.x);
-                        attackResultPayload.setY(shot.y);
-                        attackResultPayload.setRisultato(risposta);
-
-                        result.setPayload(attackResultPayload);
+                    // Risultato all'attaccante
+                    if (!sunk) {
+                        AttackResultPayload p = new AttackResultPayload();
+                        p.setX(shot.x); p.setY(shot.y); p.setRisultato(risposta);
+                        sendTo(id, "ATTACK_RESULT", p);
                     } else {
-                        result.setTipo("GAME_OVER");
-                        gameOverPayload.setVincitore(String.valueOf(id));
-                        result.setPayload(gameOverPayload);
-                    }
-
-                    outs[id].println(gson.toJson(result));
-
-                    // ============================================================
-                    // INVIARE ALL'AVVERSARIO CHE È STATO COLPITO
-                    // ============================================================
-                    if (hit) {
-                        outs[opponent].println(
-                                "{\"hitYou\":true,\"x\":" + shot.x + ",\"y\":" + shot.y + "}");
-                    }
-
-                    // ============================================================
-                    // FINE PARTITA
-                    // ============================================================
-                    if (gameOver) {
-                        outs[opponent].println("{\"message\":\"Hai perso!\",\"gameOver\":true}");
+                        GameOverPayload go = new GameOverPayload();
+                        go.setVincitore("Giocatore " + id);
+                        sendTo(id, "GAME_OVER", go);
+                        sendTo(opponent, "GAME_OVER", go);
+                        System.out.println(S_VERDE + "[GAME OVER] Giocatore " + id + " vince!" + S_RESET);
                         break;
                     }
 
-                    // ============================================================
-                    // CAMBIO TURNO
-                    // ============================================================
-                    turn = opponent;
+                    // Notifica al difensore
+                    sendTo(opponent, "INCOMING_ATTACK", new IncomingAttackPayload(shot.x, shot.y, risposta));
 
-                    outs[opponent].println("{\"message\":\"Tocca a te!\",\"yourTurn\":true}");
+                    // Cambio Turno
+                    sendTo(id, "TURN_CHANGE", new TurnChangePayload(false));
+                    sendTo(opponent, "TURN_CHANGE", new TurnChangePayload(true));
                 }
-
-                // Chiude la connessione del giocatore
                 socket.close();
-
             } catch (Exception e) {
-                e.printStackTrace();
+                System.out.println(S_ROSSO + "[ERRORE] Giocatore " + id + " disconnesso." + S_RESET);
             }
+        }
+
+        private void sendTo(int playerId, String type, Object payload) {
+            Messaggio m = new Messaggio();
+            m.setTipo(type); // Ricordati di cambiarlo in setType se rinomini il campo
+            m.setPayload(payload);
+            outs[playerId].println(gson.toJson(m));
         }
 
         private String risultato(boolean hit, boolean sunk) {
-
-            if (hit) {
-                return "HIT";
-            }
-
-            if (sunk) {
-                return "SUNK";
-            }
-
-            return "";
-
+            if (sunk) return "SUNK";
+            return hit ? "HIT" : "MISS";
         }
-
     }
 }
