@@ -10,8 +10,7 @@ import com.mycompany.battaglia_navale.logica.Tabella;
 import com.mycompany.battaglia_navale.payloads.AttackResultPayload;
 import com.mycompany.battaglia_navale.payloads.GameOverPayload;
 
-public class Server 
-{
+public class Server {
     // Porta su cui il server ascolta
     private static final int PORT = 5000;
 
@@ -30,15 +29,13 @@ public class Server
     // Indica di chi è il turno (0 = player1, 1 = player2)
     private static int turn = 0;
 
-    public static void main(String[] args) throws Exception 
-    {
+    public static void main(String[] args) throws Exception {
         // Avvio del server
         ServerSocket server = new ServerSocket(PORT);
         System.out.println("Server pronto...");
 
         // Attende la connessione di 2 giocatori
-        for (int i = 0; i < 2; i++) 
-        {
+        for (int i = 0; i < 2; i++) {
             Socket client = server.accept();
             System.out.println("Client " + i + " connesso");
             connectedPlayers++;
@@ -54,11 +51,10 @@ public class Server
     // ============================================================
     // THREAD CHE GESTISCE UN SINGOLO GIOCATORE
     // ============================================================
-    static class PlayerHandler implements Runnable
-    {
-        private Socket socket;      // socket del giocatore
-        private int id;             // id del giocatore (0 o 1)
-        private BufferedReader in;  // input dal client
+    static class PlayerHandler implements Runnable {
+        private Socket socket; // socket del giocatore
+        private int id; // id del giocatore (0 o 1)
+        private BufferedReader in; // input dal client
 
         public PlayerHandler(Socket socket, int id) throws Exception {
             this.socket = socket;
@@ -67,8 +63,7 @@ public class Server
         }
 
         @Override
-        public void run()
-        {
+        public void run() {
 
             boolean hit;
             boolean sunk;
@@ -80,10 +75,9 @@ public class Server
             String risposta;
 
             Colpo shot;
-            Messaggio result=new Messaggio();
-            AttackResultPayload attackResultPayload=new AttackResultPayload();
-            GameOverPayload gameOverPayload=new GameOverPayload();
-
+            Messaggio result = new Messaggio();
+            AttackResultPayload attackResultPayload = new AttackResultPayload();
+            GameOverPayload gameOverPayload = new GameOverPayload();
 
             try {
                 // ============================================================
@@ -97,23 +91,29 @@ public class Server
                     readyPlayers++;
 
                     if (readyPlayers == 2) {
-                        // Giocatore 0 inizia
-                        outs[0].println("{\"message\":\"Partita iniziata! Sei il primo a tirare.\",\"yourTurn\":true}");
+                        // Creiamo il messaggio GAME_START
+                        Messaggio startMsg = new Messaggio();
+                        startMsg.setTipo("GAME_START");
 
-                        // Giocatore 1 attende
-                        outs[1].println("{\"message\":\"Partita iniziata! Attendi il tuo turno.\",\"yourTurn\":false}");
+                        // Invio al Player 0
+                        startMsg.setPayload("Sei il primo a tirare.");
+                        outs[0].println(gson.toJson(startMsg));
+
+                        // Invio al Player 1
+                        startMsg.setPayload("Attendi il tuo turno.");
+                        outs[1].println(gson.toJson(startMsg));
                     }
                 }
 
                 // ============================================================
                 // 2. LOOP DI GIOCO
                 // ============================================================
-                while (true)
-                {
+                while (true) {
 
                     // Attende un colpo dal giocatore
                     jsonShot = in.readLine();
-                    if (jsonShot == null) break; // client disconnesso
+                    if (jsonShot == null)
+                        break; // client disconnesso
 
                     // Converte il JSON in oggetto Colpo
                     shot = gson.fromJson(jsonShot, Colpo.class);
@@ -126,16 +126,15 @@ public class Server
                     // ============================================================
                     hit = tabella[opponent].isHit(shot.x, shot.y);
                     sunk = tabella[opponent].isSunk(); // nave affondata?
-                    gameOver = sunk;                   // partita finita?
+                    gameOver = sunk; // partita finita?
 
-                    risposta=risultato(hit,sunk);
+                    risposta = risultato(hit, sunk);
 
                     // ============================================================
                     // RISPOSTA AL GIOCATORE CHE HA TIRATO
                     // ============================================================
 
-                    if(!gameOver)
-                    {
+                    if (!gameOver) {
                         result.setTipo("ATTACK_RESULT");
 
                         attackResultPayload.setX(shot.x);
@@ -143,9 +142,7 @@ public class Server
                         attackResultPayload.setRisultato(risposta);
 
                         result.setPayload(attackResultPayload);
-                    }
-                    else
-                    {
+                    } else {
                         result.setTipo("GAME_OVER");
                         gameOverPayload.setVincitore(String.valueOf(id));
                         result.setPayload(gameOverPayload);
@@ -158,8 +155,7 @@ public class Server
                     // ============================================================
                     if (hit) {
                         outs[opponent].println(
-                            "{\"hitYou\":true,\"x\":" + shot.x + ",\"y\":" + shot.y + "}"
-                        );
+                                "{\"hitYou\":true,\"x\":" + shot.x + ",\"y\":" + shot.y + "}");
                     }
 
                     // ============================================================
@@ -181,23 +177,18 @@ public class Server
                 // Chiude la connessione del giocatore
                 socket.close();
 
-            }
-            catch (Exception e)
-            {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
-        private  String risultato(boolean hit, boolean sunk)
-        {
+        private String risultato(boolean hit, boolean sunk) {
 
-            if(hit)
-            {
-               return "HIT";
+            if (hit) {
+                return "HIT";
             }
 
-            if(sunk)
-            {
+            if (sunk) {
                 return "SUNK";
             }
 
@@ -207,4 +198,3 @@ public class Server
 
     }
 }
-
