@@ -38,7 +38,7 @@ public class Client {
         int hx, hy;
 
         // check numeri utenti connessi al server
-        if (Server.readyPlayers == 2) {
+        if (Server.connectedPlayers == 2) {
             System.out.println("Partita già piena");
             System.exit(0);
         }

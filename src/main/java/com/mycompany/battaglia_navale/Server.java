@@ -25,7 +25,7 @@ public class Server
     private static PrintWriter[] outs = new PrintWriter[2];
 
     // Numero di giocatori che hanno inviato la loro board
-    public static int readyPlayers = 0;
+    public static int readyPlayers = 0, connectedPlayers = 0;
 
     // Indica di chi è il turno (0 = player1, 1 = player2)
     private static int turn = 0;
@@ -41,6 +41,7 @@ public class Server
         {
             Socket client = server.accept();
             System.out.println("Client " + i + " connesso");
+            connectedPlayers++;
 
             // Salva il canale di output del client
             outs[i] = new PrintWriter(client.getOutputStream(), true);
